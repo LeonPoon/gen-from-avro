@@ -44,7 +44,9 @@ case class Generation(generatedUnits: List[GeneratedUnit], pendingGen: List[Gen]
 object NoGeneration extends Generation(List.empty, List.empty)
 
 trait Gen {
-  def getTree(field: Schema.Field, i: Int): Tree = REF(field.name())
+  def putTree(parent: Gen, field: Schema.Field, i: Int, valueParamName: String): Tree = BLOCK(REF(field.name()) := REF(valueParamName) AS rootClass)
+
+  def getTree(parent: Gen, field: Schema.Field, i: Int): Tree = REF(field.name())
 
   val schema: Schema
 
@@ -127,10 +129,19 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema) {
           DEF("get", AnyRefClass) withParams VAL(fieldParamName, IntClass) withFlags Flags.OVERRIDE :=
             PAREN(REF(fieldParamName) withAnnots ANNOT(SwitchClass) MATCH (
               fieldsGens.zipWithIndex.map { case ((field, gen), i) =>
-                CASE(LIT(i)) ==> gen.getTree(field, i)
+                CASE(LIT(i)) ==> gen.getTree(this, field, i)
               } :+ CaseInvalidIndex)) AS AnyRefClass,
-
+          DEF("getRaw", AnyRefClass) withParams VAL(fieldParamName, IntClass) :=
+            PAREN(REF(fieldParamName) withAnnots ANNOT(SwitchClass) MATCH (
+              fieldsGens.zipWithIndex.map { case ((field, gen), i) =>
+                CASE(LIT(i)) ==> REF(field.name())
+              } :+ CaseInvalidIndex)) AS AnyRefClass,
           DEF("put", UnitClass) withParams(VAL(fieldParamName, IntClass), VAL(valueParamName, AnyClass)) withFlags Flags.OVERRIDE :=
+            (REF(fieldParamName) withAnnots ANNOT(SwitchClass)) MATCH (
+              fieldsGens.zipWithIndex.map { case ((field, gen), i) =>
+                CASE(LIT(i)) ==> gen.putTree(this, field, i, valueParamName)
+              } :+ CaseInvalidIndex),
+          DEF("putRaw", UnitClass) withParams(VAL(fieldParamName, IntClass), VAL(valueParamName, AnyClass)) :=
             (REF(fieldParamName) withAnnots ANNOT(SwitchClass)) MATCH (
               fieldsGens.zipWithIndex.map { case ((field, gen), i) =>
                 CASE(LIT(i)) ==> BLOCK(REF(field.name()) := REF(valueParamName) AS gen.rootClass)
