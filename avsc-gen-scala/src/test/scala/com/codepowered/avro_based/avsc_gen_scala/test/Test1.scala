@@ -4,6 +4,7 @@ import com.codepowered.avro_based.avsc_gen_scala.AvscGenScala
 import org.apache.avro.Schema
 
 import java.nio.file.Paths
+import scala.io.Source
 
 object Test1 extends App {
 
@@ -21,43 +22,16 @@ object Test1 extends App {
     "timestamp-millis", "timestamp-micros", "local-timestamp-millis", "local-timestamp-micros"
   ), "byte" -> List("decimal"), "fixed" -> List("decimal", "duration"), "string" -> List("uuid"))
 
-
-  val s1 =
-    """
-
-
-    """
+  val stxt = Source.fromInputStream(getClass.getResourceAsStream("/com/codepowered/avro_based/avsc_gen_scala/test/schema.avsc")).mkString
 
   val s2 =
-    """
+    stxt.replace("F1", primitives.flatMap(p => List(s"""{"name":"${p}Field","type":"$p"}""") ++
+        logicalTypes.getOrElse(p, Nil).map(log => s"""{"name":"${p}Field${log.replace('-', '_')}","type":"$p","logicalType":"$log"}""")).mkString(","))
+      .replace("F2", s"""{"name":"unionField1","type":[${(primitives ++ List("x.ns1.a")).map(s => s"\"$s\"").mkString(",\n")}]}"""
+      )
 
-{
-"type": "record",
-"namespace": "x.ns1",
-"name": "a",
-"fields": [F1,{
-"name":"f1",
-"type":{
-    "type": "record",
-"namespace": "x.ns2",
-    "name": "b",
-    "fields": [
-{
-    "name":"b1",
-    "type":"string"
-    },
-{
-    "name":"b2",
-    "type":"x.ns1.a"
-    }
-    ]
-    }
-}
-]
-}
-    """.replace("F1", primitives.flatMap(p => List(s"""{"name":"${p}Field","type":"$p"}""") ++
-      logicalTypes.getOrElse(p, Nil).map(log => s"""{"name":"${p}Field${log.replace('-', '_')}","type":"$p","logicalType":"$log"}""")).mkString(","))
 
+  println(s2)
 
   val sch = new Schema.Parser().parse(
     s2)

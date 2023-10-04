@@ -19,6 +19,7 @@ package com.codepowered.avro_based.avsc_gen_scala
 import org.apache.avro.Schema
 import treehugger.forest._
 import definitions._
+import treehugger.forest
 import treehuggerDSL._
 
 import java.nio.charset.StandardCharsets
@@ -44,6 +45,8 @@ case class Generation(generatedUnits: List[GeneratedUnit], pendingGen: List[Gen]
 object NoGeneration extends Generation(List.empty, List.empty)
 
 trait Gen {
+  def imports: Set[String] = Set()
+
   def putTree(parent: Gen, field: Schema.Field, i: Int, valueParamName: String): Tree = BLOCK(REF(field.name()) := REF(valueParamName) AS rootClass)
 
   def getTree(parent: Gen, field: Schema.Field, i: Int): Tree = REF(field.name())
@@ -117,8 +120,9 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema) {
     override def fileContent: Tree = {
       val fieldsGens = schema.getFields.asScala.zip(pendingGens).toList
 
-      val file = BLOCK(
+      val file = BLOCK(fieldsGens.foldLeft(Set[String]()) { case (s, (field, gen)) => s ++ gen.imports }.toList.map(s => IMPORT(s)) ++ List(
         CASECLASSDEF(symbol) withParams fieldsGens.map[ValDef] { case (field, gen) => VAR(field.name(), gen.rootClass) } withParents SpecificRecordBaseClass := BLOCK(
+
           DEFTHIS withParams (List.empty) := THIS APPLY fieldsGens.zipWithIndex.map[Tree] { case ((field, gen), i) =>
             (REF(field.name()) := gen.defaultValue) withComment (i match {
               case 0 => " "
@@ -153,7 +157,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema) {
             schema.toString(true).split("\r?\n").zipWithIndex.map { case (s, i) => LIT(s) withComments (" ") }) DOT "mkString" APPLY (LIT(""))
             )
         )
-      )
+      ))
 
       schema.getNamespace match {
         case null => file
@@ -213,11 +217,27 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema) {
   }
 
   case class GenUNION(schema: Schema) extends GenComplex {
-    override def rootClass: Type = ???
 
-    override def apply(): Generation = Generation(List.empty, schema.getTypes.asScala.map(gen).toList)
+    val nonNullTypes: List[Schema] = schema.getTypes.asScala.filter(_.getType != Schema.Type.NULL).toList
 
-    override def defaultValue: Tree = ???
+    val includesNull: Boolean = nonNullTypes.length < schema.getTypes.size()
+
+    val gens: List[Gen] = nonNullTypes.map(gen)
+
+
+    override def imports: Set[String] = if ((includesNull, nonNullTypes.length) == (true, 1)) Set()
+    else List(":+:", "CNil", "Coproduct").map(c => s"shapeless.$c").toSet
+
+    val insideOptionClass: Type =
+      if ((includesNull, nonNullTypes.length) == (true, 1)) gens.head.rootClass
+      else RootClass.newClass(s"${gens.map(_.rootClass).mkString(" :+: ")} :+: CNil")
+
+    override def rootClass: Type = if (includesNull) TYPE_OPTION(insideOptionClass) else insideOptionClass
+
+
+    override def apply(): Generation = Generation(List.empty, gens)
+
+    override def defaultValue: Tree = if (includesNull) NONE else REF("Coproduct") APPLY (gens.head.defaultValue)
   }
 
   case class GenBYTES(schema: Schema) extends GenPrimitive {
