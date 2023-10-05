@@ -40,7 +40,7 @@ object Test1 extends App {
   val path = Paths.get(".").toAbsolutePath.resolve("target")
   println(path)
 
-  val gen = new AvscGenScala(null, sch)
+  val gen = new AvscGenScala(null, sch, "x.MyAvro")
   gen.toFiles(path, gen.files)
 
 }

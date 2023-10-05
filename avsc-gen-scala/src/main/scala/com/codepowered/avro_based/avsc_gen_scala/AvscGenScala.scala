@@ -16,6 +16,7 @@
 
 package com.codepowered.avro_based.avsc_gen_scala
 
+import com.codepowered.avro_based.avsc_gen_scala.AvscGenScala._
 import org.apache.avro.Schema
 import treehugger.forest._
 import definitions._
@@ -30,7 +31,9 @@ import scala.jdk.CollectionConverters.IterableHasAsScala
 case class UnitInfo(
                      packageName: Option[String],
                      className: String
-                   )
+                   ) {
+  def full: String = List(packageName, Some(className)).mkString(".")
+}
 
 case class GeneratedUnit(
                           generatedElement: UnitInfo,
@@ -102,12 +105,16 @@ trait TopLevelGen extends GenComplex {
 
 }
 
+object AvscGenScala {
 
-class AvscGenScala(val settings: GeneratorSettings, val schema: Schema) {
+  val SpecificRecordBaseClass: Type = RootClass.newClass("org.apache.avro.specific.SpecificRecordBase")
+  val SchemaClass: Type = RootClass.newClass("org.apache.avro.Schema")
+  val SchemaParserClass: Type = RootClass.newClass("org.apache.avro.Schema.Parser")
 
-  val SpecificRecordBaseClass = RootClass.newClass("org.apache.avro.specific.SpecificRecordBase")
-  val SchemaClass = RootClass.newClass("org.apache.avro.Schema")
-  val SwitchClass = RootClass.newClass("scala.annotation.switch")
+}
+
+class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val schemaName: String) {
+  val schemaObjectSchemaValName = "schema"
 
   case class GenRECORD(schema: Schema) extends TopLevelGen {
 
@@ -153,7 +160,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema) {
         ),
 
         OBJECTDEF(symbol) := BLOCK(
-          VAL(objectSchemaValName, SchemaClass) := NEW(SchemaClass DOT "Parser") APPLY (Nil) DOT "parse" APPLY (LIST(
+          VAL(objectSchemaValName, SchemaClass) := NEW(SchemaParserClass) APPLY (Nil) DOT "parse" APPLY (LIST(
             schema.toString(true).split("\r?\n").zipWithIndex.map { case (s, i) => LIT(s) withComments (" ") }) DOT "mkString" APPLY (LIT(""))
             )
         )
@@ -393,10 +400,25 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema) {
       case Schema.Type.NULL => GenNULL
     })(schema)
 
+  val schemaUnitInfo: UnitInfo = schemaName.split('.').toList.reverse match {
+    case name :: packageParts => UnitInfo(Some(packageParts).filter(_.nonEmpty).map(_.reverse.mkString(".")), name)
+  }
+
+  val rootClass: Type = RootClass.newClass(schemaUnitInfo.full)
+
+  lazy val treeForSchema: Tree = BLOCK(List[Option[List[Tree]]](
+    Some(List[Tree](
+      OBJECTDEF(schemaUnitInfo.className) := BLOCK(
+        LAZYVAL(schemaObjectSchemaValName, SchemaClass) := NEW(SchemaParserClass) APPLY Nil DOT "parse" APPLY (LIST(schema.toString(true).trim().split("\r?\n").map(line => LIT(line) withComment " ")) DOT "mkString" APPLY LIT(""))
+      )))
+  ).flatten.flatMap[Tree](identity[List[Tree]]))
+
+  lazy val forSchema: Generation = Generation(List(GeneratedUnit(schemaUnitInfo, schemaUnitInfo.packageName.fold(treeForSchema)(treeForSchema inPackage _))), List(gen(schema)))
+
 
   lazy val files: List[GeneratedUnit] = {
 
-    LazyList.from(0).scanLeft(gen(schema)()) { case (Generation(generatedUnits, gen :: pendingGen), i) =>
+    LazyList.from(0).scanLeft(forSchema) { case (Generation(generatedUnits, gen :: pendingGen), i) =>
 
 
       val willGenerate = gen.generatedUnitInfo.fold(true)(toGen => !generatedUnits.exists(generated => {
