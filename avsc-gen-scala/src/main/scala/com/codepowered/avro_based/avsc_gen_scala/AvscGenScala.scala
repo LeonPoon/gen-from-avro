@@ -20,7 +20,6 @@ import com.codepowered.avro_based.avsc_gen_scala.AvscGenScala._
 import org.apache.avro.Schema
 import treehugger.forest._
 import definitions._
-import treehugger.forest
 import treehuggerDSL._
 
 import java.nio.charset.StandardCharsets
@@ -32,7 +31,7 @@ case class UnitInfo(
                      packageName: Option[String],
                      className: String
                    ) {
-  def full: String = List(packageName, Some(className)).mkString(".")
+  def full: String = List(packageName, Some(className)).flatten.mkString(".")
 }
 
 case class GeneratedUnit(
@@ -69,6 +68,8 @@ trait Gen {
   def rootClass: Type
 
   def defaultValue: Tree
+
+  val schemaTreeBasedOnParent: Tree
 }
 
 trait GenComplex extends Gen {
@@ -116,7 +117,7 @@ object AvscGenScala {
 class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val schemaName: String) {
   val schemaObjectSchemaValName = "schema"
 
-  case class GenRECORD(schema: Schema) extends TopLevelGen {
+  case class GenRECORD(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends TopLevelGen {
 
     val objectSchemaValName = "schema"
     val fieldParamName = "field"
@@ -160,9 +161,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
         ),
 
         OBJECTDEF(symbol) := BLOCK(
-          VAL(objectSchemaValName, SchemaClass) := NEW(SchemaParserClass) APPLY (Nil) DOT "parse" APPLY (LIST(
-            schema.toString(true).split("\r?\n").zipWithIndex.map { case (s, i) => LIT(s) withComments (" ") }) DOT "mkString" APPLY (LIT(""))
-            )
+          VAL(objectSchemaValName, SchemaClass) := schemaTreeBasedOnParent
         )
       ))
 
@@ -172,7 +171,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
       }
     }
 
-    override def pendingGens: List[Gen] = schema.getFields.asScala.map(field => field.schema()).map(gen).toList
+    override def pendingGens: List[Gen] = schema.getFields.asScala.zipWithIndex.map { case (field, i) => gen(field.schema(), schemaTree DOT "getFields" DOT "get" APPLY LIT(i) DOT "schema" APPLY Nil) }.toList
 
     val symbol: Symbol = RootClass.newClass(schema.getName)
 
@@ -184,9 +183,11 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
     private val CaseInvalidIndex = CASE(REF(fieldParamName)) ==> THROW(NEW(REF("IllegalArgumentException") APPLY (INTERP("s", LIT(s"invalid field index for $rootClass (RECORD of ${schema.getFields.size()} fields): "), REF(fieldParamName)))))
 
     override def defaultValue: Tree = NEW(rootClass APPLY List())
+
+    val schemaTree: Tree = rootClass DOT objectSchemaValName
   }
 
-  case class GenENUM(schema: Schema) extends TopLevelGen {
+  case class GenENUM(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends TopLevelGen {
     override val unitInfo: UnitInfo = ???
 
     override def fileContent: Tree = ???
@@ -198,7 +199,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
     override def defaultValue: Tree = ???
   }
 
-  case class GenFIXED(schema: Schema) extends GenComplex {
+  case class GenFIXED(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenComplex {
 
     val fixedSize = schema.getFixedSize
 
@@ -208,25 +209,26 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
   }
 
 
-  case class GenARRAY(schema: Schema) extends GenComplex {
+  case class GenARRAY(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenComplex {
     override def rootClass: Type = ???
 
     override def defaultValue: Tree = ???
   }
 
-  case class GenMAP(schema: Schema) extends GenComplex {
+  case class GenMAP(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenComplex {
     override def rootClass: Type = ???
 
     override def defaultValue: Tree = ???
   }
 
-  case class GenUNION(schema: Schema) extends GenComplex {
+  case class GenUNION(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenComplex {
+
 
     val nonNullTypes: List[Schema] = schema.getTypes.asScala.filter(_.getType != Schema.Type.NULL).toList
 
     val includesNull: Boolean = nonNullTypes.length < schema.getTypes.size()
 
-    val gens: List[Gen] = nonNullTypes.map(gen)
+    val gens: List[Gen] = schema.getTypes.asScala.zipWithIndex.collect { case (schema, i) if schema.getType != Schema.Type.NULL => gen(schema, schemaTreeBasedOnParent DOT "getTypes" DOT "get" APPLY (LIT(i))) }.toList
 
 
     override def imports: Set[String] = if ((includesNull, nonNullTypes.length) == (true, 1)) Set()
@@ -244,49 +246,49 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
     override def defaultValue: Tree = if (includesNull) NONE else REF("Coproduct") APPLY (gens.head.defaultValue)
   }
 
-  case class GenBYTES(schema: Schema) extends GenPrimitive {
+  case class GenBYTES(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenPrimitive {
     override def rootClass: Type = TYPE_ARRAY(ByteClass)
 
     override def defaultValue: Tree = ARRAY()
   }
 
-  case class GenSTRING(schema: Schema) extends GenPrimitive {
+  case class GenSTRING(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenPrimitive {
     override def rootClass: Type = GenSTRING.rootClass
 
     override def defaultValue: Tree = LIT("")
   }
 
-  case class GenINT(schema: Schema) extends GenPrimitive {
+  case class GenINT(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenPrimitive {
     override def rootClass: Type = GenINT.rootClass
 
     override def defaultValue: Tree = LIT(0)
   }
 
-  case class GenLONG(schema: Schema) extends GenPrimitive {
+  case class GenLONG(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenPrimitive {
     override def rootClass: Type = GenLONG.rootClass
 
     override def defaultValue: Tree = LIT(0L)
   }
 
-  case class GenFLOAT(schema: Schema) extends GenPrimitive {
+  case class GenFLOAT(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenPrimitive {
     override def rootClass: Type = GenFLOAT.rootClass
 
     override def defaultValue: Tree = LIT(0.0f)
   }
 
-  case class GenDOUBLE(schema: Schema) extends GenPrimitive {
+  case class GenDOUBLE(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenPrimitive {
     override def rootClass: Type = GenDOUBLE.rootClass
 
     override def defaultValue: Tree = LIT(0.0)
   }
 
-  case class GenBOOLEAN(schema: Schema) extends GenPrimitive {
+  case class GenBOOLEAN(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenPrimitive {
     override def rootClass: Type = GenBOOLEAN.rootClass
 
     override def defaultValue: Tree = LIT(false)
   }
 
-  case class GenNULL(schema: Schema) extends GenPrimitive {
+  case class GenNULL(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenPrimitive {
     override def rootClass: Type = GenNULL.rootClass
 
     override def defaultValue: Tree = UNIT
@@ -294,7 +296,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
 
 
   trait AvroType {
-    def apply(schema: Schema): Gen
+    def apply(schema: Schema, parent: Tree): Gen
   }
 
   trait AvroTypePrimitive extends AvroType
@@ -302,81 +304,80 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
   trait AvroTypeComplext extends AvroType
 
   object GenRECORD extends AvroType {
-    def apply(schema: Schema) = new GenRECORD(schema)
+    def apply(schema: Schema, parent: Tree) = new GenRECORD(schema, parent)
   }
 
   object GenENUM extends AvroType {
-    def apply(schema: Schema) = new GenENUM(schema)
+    def apply(schema: Schema, parent: Tree) = new GenENUM(schema, parent)
   }
 
   object GenARRAY extends AvroType {
-    def apply(schema: Schema) = new GenARRAY(schema)
+    def apply(schema: Schema, parent: Tree) = new GenARRAY(schema, parent)
 
 
   }
 
   object GenMAP extends AvroType {
-    def apply(schema: Schema) = new GenMAP(schema)
+    def apply(schema: Schema, parent: Tree) = new GenMAP(schema, parent)
   }
 
   object GenUNION extends AvroType {
-    def apply(schema: Schema) = new GenUNION(schema)
+    def apply(schema: Schema, parent: Tree) = new GenUNION(schema, parent)
   }
 
   object GenFIXED extends AvroType {
-    def apply(schema: Schema) = new GenFIXED(schema)
+    def apply(schema: Schema, parent: Tree) = new GenFIXED(schema, parent)
   }
 
   object GenBYTES extends AvroType {
-    def apply(schema: Schema) = new GenBYTES(schema)
+    def apply(schema: Schema, parent: Tree) = new GenBYTES(schema, parent)
   }
 
   object GenSTRING extends AvroType {
-    def apply(schema: Schema) = new GenSTRING(schema)
+    def apply(schema: Schema, parent: Tree) = new GenSTRING(schema, parent)
 
     val rootClass: Type = StringClass
   }
 
   object GenINT extends AvroType {
-    def apply(schema: Schema) = new GenINT(schema)
+    def apply(schema: Schema, parent: Tree) = new GenINT(schema, parent)
 
     val rootClass: Type = IntClass
   }
 
   object GenLONG extends AvroType {
-    def apply(schema: Schema) = new GenLONG(schema)
+    def apply(schema: Schema, parent: Tree) = new GenLONG(schema, parent)
 
     val rootClass: Type = LongClass
   }
 
   object GenFLOAT extends AvroType {
-    def apply(schema: Schema) = new GenFLOAT(schema)
+    def apply(schema: Schema, parent: Tree) = new GenFLOAT(schema, parent)
 
     val rootClass: Type = FloatClass
   }
 
   object GenDOUBLE extends AvroType {
-    def apply(schema: Schema) = new GenDOUBLE(schema)
+    def apply(schema: Schema, parent: Tree) = new GenDOUBLE(schema, parent)
 
     val rootClass: Type = DoubleClass
   }
 
   object GenBOOLEAN extends AvroType {
-    def apply(schema: Schema) = new GenBOOLEAN(schema)
+    def apply(schema: Schema, parent: Tree) = new GenBOOLEAN(schema, parent)
 
     val rootClass: Type = BooleanClass
   }
 
   object GenNULL extends AvroType {
-    def apply(schema: Schema) = new GenNULL(schema)
+    def apply(schema: Schema, parent: Tree) = new GenNULL(schema, parent)
 
     val rootClass: Type = UnitClass
 
 
   }
 
-
-  def gen(schema: Schema) =
+  def gen(schema: Schema, schemaTree: Tree) =
 
     (schema.getType match {
       case Schema.Type.RECORD => GenRECORD
@@ -398,7 +399,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
       case Schema.Type.BOOLEAN => GenBOOLEAN
 
       case Schema.Type.NULL => GenNULL
-    })(schema)
+    })(schema, schemaTree)
 
   val schemaUnitInfo: UnitInfo = schemaName.split('.').toList.reverse match {
     case name :: packageParts => UnitInfo(Some(packageParts).filter(_.nonEmpty).map(_.reverse.mkString(".")), name)
@@ -413,13 +414,11 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
       )))
   ).flatten.flatMap[Tree](identity[List[Tree]]))
 
-  lazy val forSchema: Generation = Generation(List(GeneratedUnit(schemaUnitInfo, schemaUnitInfo.packageName.fold(treeForSchema)(treeForSchema inPackage _))), List(gen(schema)))
-
+  lazy val forSchema: Generation = Generation(List(GeneratedUnit(schemaUnitInfo, schemaUnitInfo.packageName.fold(treeForSchema)(treeForSchema inPackage _))), List(gen(schema, rootClass DOT schemaObjectSchemaValName)))
 
   lazy val files: List[GeneratedUnit] = {
 
     LazyList.from(0).scanLeft(forSchema) { case (Generation(generatedUnits, gen :: pendingGen), i) =>
-
 
       val willGenerate = gen.generatedUnitInfo.fold(true)(toGen => !generatedUnits.exists(generated => {
         generated.generatedElement == toGen
