@@ -13,7 +13,9 @@
           "namespace": "x.ns2",
           "name": "b",
           "fields": [
-            F2
+            F2,
+            {"name": "mapField", "type": {"type": "map", "values":  ["null","x.ns1.a","int"]}},
+            {"name": "arrayField", "type": {"type": "array", "items":  ["null","x.ns1.a",{"type": "enum", "name": "EnumType", "symbols":  ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"]}]}}
           ]
         }
       }
