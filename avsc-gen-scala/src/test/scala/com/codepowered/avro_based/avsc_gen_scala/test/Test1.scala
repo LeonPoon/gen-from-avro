@@ -31,10 +31,11 @@ object Test1 extends App {
       )
 
 
-  println(s2)
 
   val sch = new Schema.Parser().parse(
     s2)
+
+  println(sch.toString(true))
 
   val path = Paths.get(".").toAbsolutePath.resolve("target")
   println(path)

@@ -5,6 +5,7 @@
     "name": "a",
     "fields": [
       F1,
+      {"name":"fixedField","type":{"type": "fixed", "size": 16, "name": "md5"}},
       {
         "name": "f1",
         "type": {

@@ -191,16 +191,13 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema) {
     override def defaultValue: Tree = ???
   }
 
-  case class GenFIXED(schema: Schema) extends TopLevelGen {
-    override val unitInfo: UnitInfo = ???
+  case class GenFIXED(schema: Schema) extends GenComplex {
 
-    override def fileContent: Tree = ???
+    val fixedSize = schema.getFixedSize
 
-    override def pendingGens: List[Gen] = ???
+    override def rootClass: Type = TYPE_ARRAY(ByteClass)
 
-    override def rootClass: Type = ???
-
-    override def defaultValue: Tree = ???
+    override def defaultValue: Tree = NEW(rootClass) APPLY (LIT(fixedSize))
   }
 
 
