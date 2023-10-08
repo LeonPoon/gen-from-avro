@@ -113,6 +113,8 @@ object AvscGenScala {
   val SchemaParserClass: Type = RootClass.newClass("org.apache.avro.Schema.Parser")
   val GenericEnumSymbolClass: Type = RootClass.newClass("org.apache.avro.generic.GenericEnumSymbol")
   val EnumClass: Type = RootClass.newClass("Enum")
+  val Inl: Type = RootClass.newClass("Inl")
+  val Inr: Type = RootClass.newClass("Inr")
 }
 
 class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val schemaName: String) {
@@ -265,7 +267,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
 
 
     override def imports: Set[String] = if ((includesNull, nonNullTypes.length) == (true, 1)) Set()
-    else List(":+:", "CNil", "Coproduct").map(c => s"shapeless.$c").toSet
+    else List(":+:", "CNil", "Coproduct", "Inl", "Inr").map(c => s"shapeless.$c").toSet
 
     val insideOptionClass: Type =
       if ((includesNull, nonNullTypes.length) == (true, 1)) gens.head.rootClass
@@ -277,6 +279,34 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
     override def apply(): Generation = Generation(List.empty, gens)
 
     override def defaultValue: Tree = if (includesNull) NONE else REF("Coproduct") APPLY (gens.head.defaultValue)
+
+
+    override def getTree(parent: Gen, field: Schema.Field, i: Int): Tree = {
+
+      val ref: Tree = REF(field.name())
+
+      val tree: Tree = nonNullTypes match {
+        case _ :: Nil if includesNull => ref
+        case _ => ref MATCH gens.foldRight[List[CaseDef]](List(CASE(ID(field.name()) withType "CNil") ==> (ref DOT "impossible"))) { case (gen, caseDefs) =>
+          List[CaseDef](
+            CASE(Inl UNAPPLY (ID(field.name()) withType gen.rootClass)) ==> ref,
+            CASE(Inr UNAPPLY ID(field.name())) ==> (ref MATCH caseDefs)
+          )
+        }
+      }
+
+      if (includesNull)
+        nonNullTypes match {
+          case _ :: Nil => ref DOT "getOrElse" APPLY NULL
+          case _ => ref DOT "fold" APPLYTYPE AnyRefClass APPLY NULL APPLY (LAMBDA(PARAM(field.name())) ==> tree)
+        }
+      else
+        tree
+    }
+
+    override def putTree(parent: Gen, field: Schema.Field, i: Int, valueParamName: String): Tree = super.putTree(parent, field, i, valueParamName)
+
+
   }
 
   case class GenBYTES(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenPrimitive {

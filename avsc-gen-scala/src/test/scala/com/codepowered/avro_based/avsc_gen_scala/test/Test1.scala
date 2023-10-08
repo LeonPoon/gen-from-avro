@@ -2,11 +2,15 @@ package com.codepowered.avro_based.avsc_gen_scala.test
 
 import com.codepowered.avro_based.avsc_gen_scala.AvscGenScala
 import org.apache.avro.Schema
+import treehugger.forest._
+import definitions._
+import treehuggerDSL._
 
 import java.nio.file.Paths
 import scala.io.Source
 
 object Test1 extends App {
+
 
   val primitives = List(
     "null",
