@@ -369,7 +369,8 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
   case class GenNULL(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenPrimitive {
     override def rootClass: Type = GenNULL.rootClass
 
-    override def defaultValue: Tree = UNIT
+    override def defaultValue: Tree = NULL
+
   }
 
 
@@ -450,7 +451,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
   object GenNULL extends AvroType {
     def apply(schema: Schema, parent: Tree) = new GenNULL(schema, parent)
 
-    val rootClass: Type = UnitClass
+    val rootClass: Type = NullClass
 
 
   }
