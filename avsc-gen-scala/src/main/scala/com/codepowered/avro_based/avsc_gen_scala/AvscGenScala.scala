@@ -305,7 +305,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
 
       val tree: Tree = nonNullTypes match {
         case _ :: Nil if includesNull => ref
-        case _ => ref MATCH gens.foldRight[List[CaseDef]](List(CASE(ID(field.name()) withType "CNil") ==> (ref DOT "impossible"))) { case (gen, caseDefs) =>
+        case _ => ref MATCH gens.foldRight[List[CaseDef]](List(CASE(ID(field.name()) withType "CNil") ==> (ref DOT "impossible" AS AnyRefClass))) { case (gen, caseDefs) =>
           List[CaseDef](
             CASE(Inl UNAPPLY (ID(field.name()) withType gen.rootClass)) ==> (ref AS AnyRefClass),
             CASE(Inr UNAPPLY ID(field.name())) ==> (ref MATCH caseDefs)
@@ -314,10 +314,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
       }
 
       if (includesNull)
-        nonNullTypes match {
-          case _ :: Nil => ref DOT "getOrElse" APPLY NULL
-          case _ => ref DOT "fold" APPLYTYPE AnyRefClass APPLY NULL APPLY (LAMBDA(PARAM(field.name())) ==> tree)
-        }
+        ref DOT "fold" APPLYTYPE AnyRefClass APPLY NULL APPLY (LAMBDA(PARAM(field.name()) withType innerType) ==> (PAREN(tree) AS AnyRefClass))
       else
         tree
     }
