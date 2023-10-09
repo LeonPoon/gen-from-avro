@@ -70,6 +70,10 @@ trait Gen {
   def defaultValue: Tree
 
   val schemaTreeBasedOnParent: Tree
+
+  def innerType: Type = rootClass
+
+  def optionType: Option[Type] = None
 }
 
 trait GenComplex extends Gen {
@@ -124,12 +128,16 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
 
     val objectSchemaValName = "schema"
     val fieldParamName = "field"
+    val fieldsObjectName = "fields"
     val valueParamName = "value"
+    val typeVarName = "fullType"
+    val typeWithOptionVarName: String = typeVarName // "typeWithOption"
+    val innerTypeVarName = "typeInOption"
 
     override val unitInfo: UnitInfo = UnitInfo(Option(schema.getNamespace), schema.getName)
 
     override def fileContent: Tree = {
-      val fieldsGens = schema.getFields.asScala.zip(pendingGens).toList
+      val fieldsGens: Seq[(Schema.Field, Gen)] = schema.getFields.asScala.zip(pendingGens).toList
 
       val file = BLOCK(fieldsGens.foldLeft(Set[String]()) { case (s, (field, gen)) => s ++ gen.imports }.toList.map(s => IMPORT(s)) ++ List(
         CASECLASSDEF(symbol) withParams fieldsGens.map[ValDef] { case (field, gen) => VAR(field.name(), gen.rootClass) } withParents SpecificRecordBaseClass := BLOCK(
@@ -164,7 +172,13 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
         ),
 
         OBJECTDEF(symbol) := BLOCK(
-          VAL(objectSchemaValName, SchemaClass) := schemaTreeBasedOnParent
+          VAL(objectSchemaValName, SchemaClass) := schemaTreeBasedOnParent,
+          OBJECTDEF(fieldsObjectName) := BLOCK(fieldsGens.map { case (field, gen) =>
+            OBJECTDEF(field.name()) := BLOCK(List[Option[Tree]](
+              Some(TYPEVAR(gen.optionType.fold(typeVarName)(_ => innerTypeVarName)) := gen.innerType),
+              gen.optionType.map(t => TYPEVAR(typeWithOptionVarName) := t)
+            ).flatten)
+          })
         )
       ))
 
@@ -275,6 +289,10 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
 
     override def rootClass: Type = if (includesNull) TYPE_OPTION(insideOptionClass) else insideOptionClass
 
+    override def innerType: Type = insideOptionClass
+
+    override def optionType: Option[Type] = if (includesNull) Some(rootClass) else None
+
 
     override def apply(): Generation = Generation(List.empty, gens)
 
@@ -289,7 +307,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
         case _ :: Nil if includesNull => ref
         case _ => ref MATCH gens.foldRight[List[CaseDef]](List(CASE(ID(field.name()) withType "CNil") ==> (ref DOT "impossible"))) { case (gen, caseDefs) =>
           List[CaseDef](
-            CASE(Inl UNAPPLY (ID(field.name()) withType gen.rootClass)) ==> ref,
+            CASE(Inl UNAPPLY (ID(field.name()) withType gen.rootClass)) ==> (ref AS AnyRefClass),
             CASE(Inr UNAPPLY ID(field.name())) ==> (ref MATCH caseDefs)
           )
         }
