@@ -71,8 +71,6 @@ trait Gen {
 
   val schemaTreeBasedOnParent: Tree
 
-  def innerType: Type = rootClass
-
   def optionType: Option[Type] = None
 }
 
@@ -131,7 +129,6 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
     val fieldsObjectName = "fields"
     val valueParamName = "value"
     val typeVarName = "fullType"
-    val typeWithOptionVarName: String = typeVarName // "typeWithOption"
     val innerTypeVarName = "typeInOption"
 
     override val unitInfo: UnitInfo = UnitInfo(Option(schema.getNamespace), schema.getName)
@@ -175,8 +172,8 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
           VAL(objectSchemaValName, SchemaClass) := schemaTreeBasedOnParent,
           OBJECTDEF(fieldsObjectName) := BLOCK(fieldsGens.map { case (field, gen) =>
             OBJECTDEF(field.name()) := BLOCK(List[Option[Tree]](
-              Some(TYPEVAR(gen.optionType.fold(typeVarName)(_ => innerTypeVarName)) := gen.innerType),
-              gen.optionType.map(t => TYPEVAR(typeWithOptionVarName) := t)
+              Some(TYPEVAR(typeVarName) := gen.rootClass),
+              gen.optionType.map(TYPEVAR(innerTypeVarName) := _),
             ).flatten)
           })
         )
@@ -289,9 +286,8 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
 
     override def rootClass: Type = if (includesNull) TYPE_OPTION(insideOptionClass) else insideOptionClass
 
-    override def innerType: Type = insideOptionClass
 
-    override def optionType: Option[Type] = if (includesNull) Some(rootClass) else None
+    override def optionType: Option[Type] = if (includesNull) Some(insideOptionClass) else None
 
 
     override def apply(): Generation = Generation(List.empty, gens)
@@ -314,7 +310,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
       }
 
       if (includesNull)
-        ref DOT "fold" APPLYTYPE AnyRefClass APPLY NULL APPLY (LAMBDA(PARAM(field.name()) withType innerType) ==> (PAREN(tree) AS AnyRefClass))
+        ref DOT "fold" APPLYTYPE AnyRefClass APPLY NULL APPLY (LAMBDA(PARAM(field.name()) withType insideOptionClass) ==> (PAREN(tree) AS AnyRefClass))
       else
         tree
     }
