@@ -327,13 +327,23 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
       }
     }
 
-    override def putTree(parent: Gen, field: Schema.Field, i: Int, valueParamName: String): Tree = super.putTree(parent, field, i, valueParamName)
+    override def putTree(parent: Gen, field: Schema.Field, i: Int, valueParamName: String): Tree = {
+      val coproductCases: Option[List[CaseDef]] = coProductType.map { coType =>
+        gens.map[CaseDef](gen =>
+          CASE(REF(valueParamName) withType gen.rootClass) ==> (parent.rootClass DOT "fields" DOT field.name() APPLY REF(valueParamName))
+        )
+      }
+      optionType.fold[Tree](coproductCases.fold[Tree](REF(valueParamName))(REF(valueParamName) MATCH _)) { insideOptType: Type =>
+        val start = TYPE_OPTION(AnyClass) APPLY REF(valueParamName) DOT "map" APPLYTYPE insideOptType
+        coproductCases.fold[Tree](start APPLY (WILDCARD AS insideOptType))(start APPLY BLOCK(_))
+      }
+    }
 
 
-    override def extraFieldObjectTrees(parent: Gen, field: Schema.Field): List[Tree] = coProductType.fold[List[Tree]](List.empty) { _ =>
+    override def extraFieldObjectTrees(parent: Gen, field: Schema.Field): List[Tree] = coProductType.fold[List[Tree]](List.empty) { coProductType =>
       gens.map[Tree] { gen =>
         val coproduct: Tree = REF("Coproduct") APPLYTYPE TYPE_REF(REF(if (includesNull) innerTypeVarName else typeVarName)) DOT "apply" APPLYTYPE gen.rootClass APPLY REF("valueInCoproduct")
-        DEF("apply", rootClass) withParams PARAM("valueInCoproduct", gen.rootClass) := (if (includesNull) SOME(coproduct) else coproduct)
+        DEF("apply", coProductType) withParams PARAM("valueInCoproduct", gen.rootClass) := coproduct
       }
     }
   }
