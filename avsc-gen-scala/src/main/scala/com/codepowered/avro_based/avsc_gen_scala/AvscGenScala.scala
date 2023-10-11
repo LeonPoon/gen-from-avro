@@ -49,7 +49,7 @@ object NoGeneration extends Generation(List.empty, List.empty)
 trait Gen {
   def imports: Set[String] = Set()
 
-  def putTree(parent: Gen, field: Schema.Field, i: Int, valueParamName: String): Tree = BLOCK(REF(field.name()) := REF(valueParamName) AS rootClass)
+  def putTree(parent: Gen, field: Schema.Field, i: Int, valueParamName: String): Tree = REF(valueParamName) AS rootClass
 
   def getTree(parent: Gen, field: Schema.Field, i: Int): Tree = REF(field.name())
 
@@ -75,6 +75,9 @@ trait Gen {
 
   def optionType: Option[Type] = None
 
+  /*
+
+   */
 }
 
 trait GenComplex extends Gen {
@@ -120,9 +123,7 @@ object AvscGenScala {
   val EnumClass: Type = RootClass.newClass("Enum")
   val Inl: Type = RootClass.newClass("Inl")
   val Inr: Type = RootClass.newClass("Inr")
-}
 
-class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val schemaName: String) {
   val schemaObjectSchemaValName = "schema"
 
   val objectSchemaValName = "schema"
@@ -131,6 +132,9 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
   val valueParamName = "value"
   val typeVarName = "fullType"
   val innerTypeVarName = "typeInOption"
+}
+
+class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val schemaName: String) {
 
   case class GenRECORD(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends TopLevelGen {
 
@@ -162,7 +166,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
           DEF("put", UnitClass) withParams(VAL(fieldParamName, IntClass), VAL(valueParamName, AnyClass)) withFlags Flags.OVERRIDE :=
             (REF(fieldParamName) withAnnots ANNOT(SwitchClass)) MATCH (
               fieldsGens.zipWithIndex.map { case ((field, gen), i) =>
-                CASE(LIT(i)) ==> gen.putTree(this, field, i, valueParamName)
+                CASE(LIT(i)) ==> (REF(field.name()) := gen.putTree(this, field, i, valueParamName))
               } :+ CaseInvalidIndex),
           DEF("putRaw", UnitClass) withParams(VAL(fieldParamName, IntClass), VAL(valueParamName, AnyClass)) :=
             (REF(fieldParamName) withAnnots ANNOT(SwitchClass)) MATCH (
@@ -275,13 +279,16 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
 
   case class GenUNION(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenComplex {
 
+    val (nonNullTypes, gens) = {
+      val types: List[(Schema, Int)] = schema.getTypes.asScala.toList.zipWithIndex
+      val nonNullTypes = types match {
+        case (schema, i) :: Nil if schema.getType == Schema.Type.NULL => types // union of only "null"
+        case types => types.filter { case (schema, i) => schema.getType != Schema.Type.NULL } // may be empty union
+      }
+      (nonNullTypes, nonNullTypes.map { case (schema, i) => gen(schema, schemaTreeBasedOnParent DOT "getTypes" DOT "get" APPLY (LIT(i))) })
+    }
 
-    val nonNullTypes: List[Schema] = schema.getTypes.asScala.filter(_.getType != Schema.Type.NULL).toList
-
-    val includesNull: Boolean = nonNullTypes.length < schema.getTypes.size()
-
-    val gens: List[Gen] = schema.getTypes.asScala.zipWithIndex.collect { case (schema, i) if schema.getType != Schema.Type.NULL => gen(schema, schemaTreeBasedOnParent DOT "getTypes" DOT "get" APPLY (LIT(i))) }.toList
-
+    val includesNull: Boolean = nonNullTypes.length < schema.getTypes.size() // false if empty union
 
     override def imports: Set[String] = if ((includesNull, nonNullTypes.length) == (true, 1)) Set()
     else List(":+:", "CNil", "Coproduct", "Inl", "Inr").map(c => s"shapeless.$c").toSet
@@ -289,6 +296,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
     val coProductType: Option[Type] =
       gens match {
         case _ :: Nil if includesNull => None // nullable single non-nulltype
+        case Nil if !includesNull => None // empty union
         case gens => Some(RootClass.newClass(s"${gens.map(_.rootClass).mkString(" :+: ")} :+: CNil"))
       }
 
@@ -300,12 +308,12 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
         }
       else None
 
-    override def rootClass: Type = optionType.fold(coProductType.getOrElse(gens.head.rootClass))(TYPE_OPTION)
+    override def rootClass: Type = optionType.fold(coProductType.getOrElse(gens.headOption.fold[Type](UnitClass)(_.rootClass)))(TYPE_OPTION)
 
 
     override def apply(): Generation = Generation(List.empty, gens)
 
-    override def defaultValue: Tree = if (includesNull) NONE else REF("Coproduct") APPLY (gens.head.defaultValue)
+    override def defaultValue: Tree = if (includesNull) NONE else coProductType.fold[Tree](UNIT)(coProductType => REF("Coproduct") APPLY gens.headOption.fold[Tree](NULL)(_.defaultValue))
 
 
     override def getTree(parent: Gen, field: Schema.Field, i: Int): Tree = {
@@ -314,9 +322,13 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
 
       val tree: Tree = nonNullTypes match {
         case _ :: Nil if includesNull => ref
+        case Nil if !includesNull => ref
         case _ => ref MATCH gens.foldRight[List[CaseDef]](List(CASE(ID(field.name()) withType "CNil") ==> (ref DOT "impossible" AS AnyRefClass))) { case (gen, caseDefs) =>
           List[CaseDef](
-            CASE(Inl UNAPPLY (ID(field.name()) withType gen.rootClass)) ==> (ref AS AnyRefClass),
+            CASE(Inl UNAPPLY (gen match {
+              case _: GenNULL => ID(field.name())
+              case gen => ID(field.name()) withType gen.rootClass
+            })) ==> (ref AS AnyRefClass),
             CASE(Inr UNAPPLY ID(field.name())) ==> (ref MATCH caseDefs)
           )
         }
@@ -330,10 +342,13 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
     override def putTree(parent: Gen, field: Schema.Field, i: Int, valueParamName: String): Tree = {
       val coproductCases: Option[List[CaseDef]] = coProductType.map { coType =>
         gens.map[CaseDef](gen =>
-          CASE(REF(valueParamName) withType gen.rootClass) ==> (parent.rootClass DOT "fields" DOT field.name() APPLY REF(valueParamName))
+          CASE(gen match {
+            case _: GenNULL => NULL withBinder valueParamName
+            case gen => REF(valueParamName) withType gen.rootClass
+          }) ==> (parent.rootClass DOT "fields" DOT field.name() APPLY REF(valueParamName))
         )
       }
-      optionType.fold[Tree](coproductCases.fold[Tree](REF(valueParamName))(REF(valueParamName) MATCH _)) { insideOptType: Type =>
+      optionType.fold[Tree](coproductCases.fold[Tree](gens.headOption.fold[Tree](UNIT)(_ => REF(valueParamName)))(REF(valueParamName) MATCH _)) { insideOptType: Type =>
         val start = TYPE_OPTION(AnyClass) APPLY REF(valueParamName) DOT "map" APPLYTYPE insideOptType
         coproductCases.fold[Tree](start APPLY (WILDCARD AS insideOptType))(start APPLY BLOCK(_))
       }

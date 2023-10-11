@@ -5,7 +5,14 @@
     "name": "a",
     "fields": [
       F1,
-      {"name":"fixedField","type":{"type": "fixed", "size": 16, "name": "md5"}},
+      {
+        "name": "fixedField",
+        "type": {
+          "type": "fixed",
+          "size": 16,
+          "name": "md5"
+        }
+      },
       {
         "name": "f1",
         "type": {
@@ -14,8 +21,37 @@
           "name": "b",
           "fields": [
             F2,
-            {"name": "mapField", "type": {"type": "map", "values":  ["null","x.ns1.a","int"]}},
-            {"name": "arrayField", "type": {"type": "array", "items":  ["null","x.ns1.a",{"type": "enum", "name": "EnumType", "symbols":  ["SPADES", "HEARTS", "DIAMONDS", "CLUBS"]}]}}
+            {
+              "name": "mapField",
+              "type": {
+                "type": "map",
+                "values": [
+                  "null",
+                  "x.ns1.a",
+                  "int"
+                ]
+              }
+            },
+            {
+              "name": "arrayField",
+              "type": {
+                "type": "array",
+                "items": [
+                  "null",
+                  "x.ns1.a",
+                  {
+                    "type": "enum",
+                    "name": "EnumType",
+                    "symbols": [
+                      "SPADES",
+                      "HEARTS",
+                      "DIAMONDS",
+                      "CLUBS"
+                    ]
+                  }
+                ]
+              }
+            }
           ]
         }
       }
@@ -30,6 +66,31 @@
         "name": "f3",
         "type": [
           "boolean"
+        ]
+      }
+    ]
+  },
+  {
+    "namespace": "x.unions_with_coproduct_avsc2",
+    "name": "UnionOfNull",
+    "type": "record",
+    "fields": [
+      {
+        "name": "f3",
+        "type": [
+          "null"
+        ]
+      }
+    ]
+  },
+  {
+    "namespace": "x.unions_with_coproduct_avsc2",
+    "name": "UnionEmpty",
+    "type": "record",
+    "fields": [
+      {
+        "name": "f3",
+        "type": [
         ]
       }
     ]
