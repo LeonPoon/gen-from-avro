@@ -104,4 +104,34 @@ class AvscGenTesting extends AnyFlatSpec with should.Matchers {
     generated.tail.tail shouldBe empty
   }
 
+
+  val nsForRecordsOfVariousUnions = "gen.for_.records_containing_various_unions"
+
+  val schemaUnionEmpty = Schema.createRecord("UnionEmpty", null, nsForRecordsOfVariousUnions, false, List(new Schema.Field("emptyUnionField", new Schema.Parser().parse(Schema.createUnion().toString()))).asJava)
+  val schemaUnionOfNull = Schema.createRecord("UnionOfNull", null, nsForRecordsOfVariousUnions, false, List(new Schema.Field("unionOfNullField", new Schema.Parser().parse(Schema.createUnion(Schema.create(Schema.Type.NULL)).toString()))).asJava)
+  val schemaUnionOfOneNonNullType = Schema.createRecord("UnionOfOneNonNullType", null, nsForRecordsOfVariousUnions, false, List(new Schema.Field("unionOfOneNonNullTypeField", new Schema.Parser().parse(Schema.createUnion(schemaUnionOfNull).toString()))).asJava)
+  val schemaUnionOfNullWithOneNonNullType = Schema.createRecord("UnionOfNullWithOneNonNullType", null, nsForRecordsOfVariousUnions, false, List(new Schema.Field("unionOfNullWithOneNonNullTypeField", new Schema.Parser().parse(Schema.createUnion(Schema.create(Schema.Type.NULL), schemaUnionOfOneNonNullType).toString()))).asJava)
+  val schemaUnionOfTwoNonNullType = Schema.createRecord("UnionOfTwoNonNullType", null, nsForRecordsOfVariousUnions, false, List(new Schema.Field("unionOfTwoNonNullTypeField", new Schema.Parser().parse(Schema.createUnion(schemaUnionOfOneNonNullType, schemaUnionOfNullWithOneNonNullType).toString()))).asJava)
+  val schemaUnionNullWithTwoNonNullType = Schema.createRecord("UnionNullWithTwoNonNullType", null, nsForRecordsOfVariousUnions, false, List(new Schema.Field("unionNullWithTwoNonNullTypeField", new Schema.Parser().parse(Schema.createUnion(Schema.create(Schema.Type.NULL), schemaUnionOfNullWithOneNonNullType, schemaUnionOfTwoNonNullType).toString()))).asJava)
+  val schemaUnionOfMoreThanTwoNonNullType = Schema.createRecord("UnionOfMoreThanTwoNonNullType", null, nsForRecordsOfVariousUnions, false, List(new Schema.Field("unionOfMoreThanTwoNonNullTypeField", new Schema.Parser().parse(Schema.createUnion(schemaUnionOfNullWithOneNonNullType, schemaUnionOfTwoNonNullType, schemaUnionNullWithTwoNonNullType).toString()))).asJava)
+  val schemaUnionNullWithMoreThanTwoNonNullType = Schema.createRecord("UnionNullWithMoreThanTwoNonNullType", null, nsForRecordsOfVariousUnions, false, List(new Schema.Field("unionNullWithMoreThanTwoNonNullTypeField", new Schema.Parser().parse(Schema.createUnion(Schema.create(Schema.Type.NULL), schemaUnionOfTwoNonNullType, schemaUnionNullWithTwoNonNullType, schemaUnionOfMoreThanTwoNonNullType).toString()))).asJava)
+
+
+  it should "generate records" in {
+    val schema = new Schema.Parser().parse(Schema.createUnion(
+      schemaUnionEmpty,
+      schemaUnionOfNull,
+      schemaUnionOfOneNonNullType,
+      schemaUnionOfNullWithOneNonNullType,
+      schemaUnionOfTwoNonNullType,
+      schemaUnionNullWithTwoNonNullType,
+      schemaUnionOfMoreThanTwoNonNullType,
+      schemaUnionNullWithMoreThanTwoNonNullType
+    ).toString())
+    val generated = new AvscGenScala(null, schema, "gen.for_.records_containing_various_unions.MyAvroSchema").files
+    AvscGenScala.toFiles(generateTo, generated)
+    generated.head.generatedElement shouldBe UnitInfo(Some("gen.for_.records_containing_various_unions"), "MyAvroSchema")
+    generated.tail shouldNot be(empty)
+  }
+
 }
