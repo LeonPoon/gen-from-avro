@@ -117,6 +117,7 @@ trait TopLevelGen extends GenComplex {
 object AvscGenScala {
 
   val SpecificRecordBaseClass: Type = RootClass.newClass("org.apache.avro.specific.SpecificRecordBase")
+  val SpecificFixedClass: Type = RootClass.newClass("org.apache.avro.specific.SpecificFixed")
   val SchemaClass: Type = RootClass.newClass("org.apache.avro.Schema")
   val SchemaParserClass: Type = RootClass.newClass("org.apache.avro.Schema.Parser")
   val GenericEnumSymbolClass: Type = RootClass.newClass("org.apache.avro.generic.GenericEnumSymbol")
@@ -126,12 +127,27 @@ object AvscGenScala {
 
   val schemaObjectSchemaValName = "schema"
 
-  val objectSchemaValName = "schema"
+  val objectSchemaValName = "SCHEMA$"
   val fieldParamName = "field"
   val fieldsObjectName = "fields"
   val valueParamName = "value"
   val typeVarName = "fullType"
   val innerTypeVarName = "typeInOption"
+
+
+  def toFiles(dir: Path, files: List[GeneratedUnit]) = {
+    files.foreach { case GeneratedUnit(UnitInfo(packageName, className), fileContent) =>
+
+      val path = packageName.fold(dir)(_.split('.').foldLeft(dir) { case (dir, packagePart) =>
+        val path = dir.resolve(packagePart)
+        Files.createDirectories(path)
+        path
+      })
+
+      Files.write(path.resolve(s"$className.scala"), treeToString(fileContent).getBytes(StandardCharsets.UTF_8))
+    }
+  }
+
 }
 
 class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val schemaName: String) {
@@ -245,13 +261,49 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
     override def defaultValue: Tree = rootClass DOT schema.getEnumSymbols.get(0)
   }
 
-  case class GenFIXED(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenComplex {
+  case class GenFIXED(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends TopLevelGen {
 
-    val fixedSize = schema.getFixedSize
+    val fixedSize: Int = schema.getFixedSize
 
-    override def rootClass: Type = TYPE_ARRAY(ByteClass)
+    override val unitInfo: UnitInfo = UnitInfo(Option(schema.getNamespace), schema.getName)
 
-    override def defaultValue: Tree = NEW(rootClass) APPLY (LIT(fixedSize))
+    val symbol: Symbol = RootClass.newClass(schema.getName)
+
+    override def fileContent: Tree = {
+
+      val file = BLOCK(
+        CLASSDEF(symbol) withParams (PARAM("bytes", "Array[Byte]")) withParents (SpecificFixedClass APPLY REF("bytes")) := BLOCK(
+
+          DEFTHIS withParams (List.empty) := THIS APPLY (NEW(ArrayClass APPLYTYPE ByteClass) APPLY LIT(fixedSize)),
+          DEF("getSchema", SchemaClass) withFlags Flags.OVERRIDE := symbol DOT objectSchemaValName,
+
+          DEF("writeExternal") withFlags (Flags.OVERRIDE) withParams (PARAM("out", "java.io.ObjectOutput")) withType UnitClass := symbol DOT "WRITER$" DOT "write" APPLY List(THIS, REF("org.apache.avro.specific.SpecificData.getEncoder") APPLY REF("out")),
+          DEF("readExternal") withFlags (Flags.OVERRIDE) withParams (PARAM("in", "java.io.ObjectInput")) withType UnitClass := symbol DOT "READER$" DOT "read" APPLY List(THIS, REF("org.apache.avro.specific.SpecificData.getDecoder") APPLY REF("in"))
+        ),
+
+        OBJECTDEF(symbol) := BLOCK(
+          VAL(objectSchemaValName, SchemaClass) := schemaTreeBasedOnParent,
+
+          VAL("WRITER$") withFlags (Flags.PRIVATE) withType (RootClass.newClass(s"org.apache.avro.io.DatumWriter[${schema.getName}]")) := (NEW(s"org.apache.avro.specific.SpecificDatumWriter[${schema.getName}]") APPLY REF(objectSchemaValName)),
+          VAL("READER$") withFlags (Flags.PRIVATE) withType (RootClass.newClass(s"org.apache.avro.io.DatumReader[${schema.getName}]")) := (NEW(s"org.apache.avro.specific.SpecificDatumReader[${schema.getName}]") APPLY REF(objectSchemaValName))
+
+        )
+      )
+
+      schema.getNamespace match {
+        case null => file
+        case namespace => file inPackage namespace
+      }
+    }
+
+    override def pendingGens: List[Gen] = List.empty
+
+    val rootClass: Type = RootClass.newClass(schema.getNamespace match {
+      case null => schema.getName
+      case someNamespace: String => s"$someNamespace.${schema.getName}"
+    })
+
+    override def defaultValue: Tree = NEW(rootClass) APPLY List.empty
   }
 
 
@@ -554,17 +606,4 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
 
   }
 
-  def toFiles(dir: Path, files: List[GeneratedUnit]) = {
-    files.foreach { case GeneratedUnit(UnitInfo(packageName, className), fileContent) =>
-
-      val path = packageName.fold(dir)(_.split('.').foldLeft(dir) { case (dir, packagePart) =>
-        val path = dir.resolve(packagePart)
-        Files.createDirectories(path)
-        path
-      })
-
-      Files.write(path.resolve(s"$className.scala"), treeToString(fileContent).getBytes(StandardCharsets.UTF_8))
-    }
-  }
 }
-
