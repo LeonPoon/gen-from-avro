@@ -164,8 +164,8 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
 
           DEFTHIS withParams (List.empty) := THIS APPLY fieldsGens.zipWithIndex.map[Tree] { case ((field, gen), i) =>
             (REF(field.name()) := gen.defaultValue) withComment (i match {
-              case 0 => " "
-              case i => (i - 1).toString
+              case 0 => s"${fieldsGens.length} field(s):"
+              case i => s"field ${i - 1}"
             })
           },
           DEF("getSchema", SchemaClass) withFlags Flags.OVERRIDE := symbol DOT objectSchemaValName,

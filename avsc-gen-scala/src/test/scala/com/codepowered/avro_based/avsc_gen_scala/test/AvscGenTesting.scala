@@ -58,6 +58,8 @@ class AvscGenTesting extends AnyFlatSpec with should.Matchers {
     del(p)
   }
 
+  def re_schema(schema: Schema): Schema = new Schema.Parser().parse(schema.toString())
+
   behavior of "AvscGenScala"
 
   primitives.foreach { primitive =>
@@ -149,6 +151,26 @@ class AvscGenTesting extends AnyFlatSpec with should.Matchers {
     val generated = new AvscGenScala(null, schema, s"$ns.MyAvroSchemaRecordOfFieldsOfPrimitives").files
     AvscGenScala.toFiles(generateTo, generated)
     generated.head.generatedElement shouldBe UnitInfo(Some(ns), "MyAvroSchemaRecordOfFieldsOfPrimitives")
+    generated.tail shouldNot be(empty)
+  }
+
+  it should "generate for record of fields of arrays and maps" in {
+    val ns = "gen.record.containers"
+    val moreSchemas: List[(String, Schema)] = List(
+      "enumField" -> enumSchema("MyEnum2", Some(ns), List("Windows", "linux")),
+      "fixedField" -> fixedSchema("MyFix2", Some(ns), 9)
+    )
+    val schema = re_schema(Schema.createUnion(
+      Schema.createRecord("RecordOfArrays", null, ns, false, (primitives.map[Schema.Field] { typeName =>
+        new Schema.Field(s"${typeName}Field", Schema.createArray(Schema.create(Schema.Type.valueOf(typeName.toUpperCase()))))
+      } ++ moreSchemas.map[Schema.Field] { case (n, s) => new Schema.Field(n, s) }).asJava),
+      Schema.createRecord("RecordOfMaps", null, ns, false, (primitives.map[Schema.Field] { typeName =>
+        new Schema.Field(s"${typeName}Field", Schema.createMap(Schema.create(Schema.Type.valueOf(typeName.toUpperCase()))))
+      } ++ moreSchemas.map[Schema.Field] { case (n, s) => new Schema.Field(n, s) }).asJava)
+    ))
+    val generated = new AvscGenScala(null, schema, s"$ns.MyAvroSchemaRecordsOfMapsAndArrays").files
+    AvscGenScala.toFiles(generateTo, generated)
+    generated.head.generatedElement shouldBe UnitInfo(Some(ns), "MyAvroSchemaRecordsOfMapsAndArrays")
     generated.tail shouldNot be(empty)
   }
 }
