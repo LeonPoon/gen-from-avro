@@ -314,9 +314,9 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
 
     val valueGen = gen(schema.getElementType, schemaTreeBasedOnParent DOT "getElementType")
 
-    override def rootClass: Type = TYPE_ARRAY(valueGen.rootClass)
+    override def rootClass: Type = TYPE_LIST(valueGen.rootClass)
 
-    override def defaultValue: Tree = ARRAY()
+    override def defaultValue: Tree = REF("List") DOT "empty" APPLYTYPE (valueGen.rootClass)
 
     override def apply(): Generation = Generation(Nil, List(valueGen))
   }
@@ -327,7 +327,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
 
     override def rootClass: Type = TYPE_MAP(StringClass, valueGen.rootClass)
 
-    override def defaultValue: Tree = MAKE_MAP()
+    override def defaultValue: Tree = REF("Map") DOT "empty" APPLYTYPE(StringClass, valueGen.rootClass)
 
     override def apply(): Generation = Generation(Nil, List(valueGen))
   }
@@ -421,7 +421,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
   case class GenBYTES(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenPrimitive {
     override def rootClass: Type = TYPE_ARRAY(ByteClass)
 
-    override def defaultValue: Tree = ARRAY()
+    override def defaultValue: Tree = NEW(rootClass) APPLY LIT(0)
   }
 
   case class GenSTRING(schema: Schema, override val schemaTreeBasedOnParent: Tree) extends GenPrimitive {

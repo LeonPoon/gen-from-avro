@@ -173,4 +173,16 @@ class AvscGenTesting extends AnyFlatSpec with should.Matchers {
     generated.head.generatedElement shouldBe UnitInfo(Some(ns), "MyAvroSchemaRecordsOfMapsAndArrays")
     generated.tail shouldNot be(empty)
   }
+
+  it should "generate for record of fields of stacked arrays and maps" in {
+    val ns = "gen.record.containers.stack_array_map"
+    val schema = re_schema(Schema.createRecord("RecordStackOfMapsAndArrays", null, ns, false, List(
+      new Schema.Field("fieldA", Schema.createUnion(Schema.createArray(Schema.createMap(Schema.createArray(Schema.createUnion(primitives.map(n => Schema.create(Schema.Type.valueOf(n.toUpperCase))).asJava)))))),
+      new Schema.Field("fieldM", Schema.createUnion(Schema.createMap(Schema.createArray(Schema.createMap(Schema.createUnion(primitives.map(n => Schema.create(Schema.Type.valueOf(n.toUpperCase))).asJava))))))
+    ).asJava))
+    val generated = new AvscGenScala(null, schema, s"$ns.MyAvroSchemaRecordStackOfMapsAndArrays").files
+    AvscGenScala.toFiles(generateTo, generated)
+    generated.head.generatedElement shouldBe UnitInfo(Some(ns), "MyAvroSchemaRecordStackOfMapsAndArrays")
+    generated.tail shouldNot be(empty)
+  }
 }
