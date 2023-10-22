@@ -51,7 +51,7 @@ trait Gen {
 
   def putTree(parent: Gen, field: Schema.Field, i: Int, valueParamName: String): Tree = REF(valueParamName) AS rootClass
 
-  def getTree(parent: Gen, field: Schema.Field, i: Int): Tree = REF(field.name())
+  def getTree(parent: Gen, field: Schema.Field, i: Int): Tree = REF(field.name()) AS AnyRefClass
 
   def extraFieldObjectTrees(parent: Gen, field: Schema.Field): List[Tree] = Nil
 
@@ -170,15 +170,15 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
           },
           DEF("getSchema", SchemaClass) withFlags Flags.OVERRIDE := symbol DOT objectSchemaValName,
           DEF("get", AnyRefClass) withParams VAL(fieldParamName, IntClass) withFlags Flags.OVERRIDE :=
-            PAREN(REF(fieldParamName) withAnnots ANNOT(SwitchClass) MATCH (
+            (REF(fieldParamName) withAnnots ANNOT(SwitchClass) MATCH (
               fieldsGens.zipWithIndex.map { case ((field, gen), i) =>
                 CASE(LIT(i)) ==> gen.getTree(this, field, i)
-              } :+ CaseInvalidIndex)) AS AnyRefClass,
+              } :+ CaseInvalidIndex)),
           DEF("getRaw", AnyRefClass) withParams VAL(fieldParamName, IntClass) :=
-            PAREN(REF(fieldParamName) withAnnots ANNOT(SwitchClass) MATCH (
+            (REF(fieldParamName) withAnnots ANNOT(SwitchClass) MATCH (
               fieldsGens.zipWithIndex.map { case ((field, gen), i) =>
-                CASE(LIT(i)) ==> REF(field.name())
-              } :+ CaseInvalidIndex)) AS AnyRefClass,
+                CASE(LIT(i)) ==> (REF(field.name()) AS AnyRefClass)
+              } :+ CaseInvalidIndex)),
           DEF("put", UnitClass) withParams(VAL(fieldParamName, IntClass), VAL(valueParamName, AnyClass)) withFlags Flags.OVERRIDE :=
             (REF(fieldParamName) withAnnots ANNOT(SwitchClass)) MATCH (
               fieldsGens.zipWithIndex.map { case ((field, gen), i) =>
@@ -245,7 +245,10 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
         ),
         OBJECTDEF(schema.getName) := BLOCK(
           (VAL(objectSchemaValName, SchemaClass) := schemaTreeBasedOnParent) ::
-            schema.getEnumSymbols.asScala.zipWithIndex.map[Tree] { case (sym, i) => CASEOBJECTDEF(sym) withParents (REF(schema.getName) APPLY(LIT(sym), LIT(i))) }.toList
+            schema.getEnumSymbols.asScala.zipWithIndex.map[Tree] { case (sym, i) =>
+              val tree: Tree = CASEOBJECTDEF(sym) withParents (REF(schema.getName) APPLY(LIT(sym), LIT(i)))
+              tree withDoc s"Ordinal: $i"
+            }.toList
         )
       )
       Option(schema.getNamespace).fold(tree)(tree inPackage _)
@@ -272,7 +275,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
     override def fileContent: Tree = {
 
       val file = BLOCK(
-        CLASSDEF(symbol) withParams (PARAM("bytes", "Array[Byte]")) withParents (SpecificFixedClass APPLY REF("bytes")) := BLOCK(
+        CLASSDEF(symbol) withParams (PARAM("bytes", TYPE_ARRAY(ByteClass))) withParents (SpecificFixedClass APPLY REF("bytes")) := BLOCK(
 
           DEFTHIS withParams (List.empty) := THIS APPLY (NEW(ArrayClass APPLYTYPE ByteClass) APPLY LIT(fixedSize)),
           DEF("getSchema", SchemaClass) withFlags Flags.OVERRIDE := symbol DOT objectSchemaValName,
@@ -373,8 +376,8 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
       val ref: Tree = REF(field.name())
 
       val tree: Tree = nonNullTypes match {
-        case _ :: Nil if includesNull => ref
-        case Nil if !includesNull => ref
+        case _ :: Nil if includesNull => ref AS AnyRefClass
+        case Nil if !includesNull => ref AS AnyRefClass
         case _ => ref MATCH gens.foldRight[List[CaseDef]](List(CASE(ID(field.name()) withType "CNil") ==> (ref DOT "impossible" AS AnyRefClass))) { case (gen, caseDefs) =>
           List[CaseDef](
             CASE(Inl UNAPPLY (gen match {
@@ -387,7 +390,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
       }
 
       optionType.fold(tree) { insideOptionClass =>
-        ref DOT "fold" APPLYTYPE AnyRefClass APPLY NULL APPLY (LAMBDA(PARAM(field.name()) withType insideOptionClass) ==> (PAREN(tree) AS AnyRefClass))
+        ref DOT "fold" APPLYTYPE AnyRefClass APPLY NULL APPLY (LAMBDA(PARAM(field.name()) withType insideOptionClass) ==> tree)
       }
     }
 
@@ -580,7 +583,7 @@ class AvscGenScala(val settings: GeneratorSettings, val schema: Schema, val sche
   lazy val treeForSchema: Tree = BLOCK(List[Option[List[Tree]]](
     Some(List[Tree](
       OBJECTDEF(schemaUnitInfo.className) := BLOCK(
-        LAZYVAL(schemaObjectSchemaValName, SchemaClass) := NEW(SchemaParserClass) APPLY Nil DOT "parse" APPLY (LIST(schema.toString(true).trim().split("\r?\n").map(line => LIT(line) withComment " ")) DOT "mkString" APPLY LIT(""))
+        LAZYVAL(schemaObjectSchemaValName, SchemaClass) := NEW(SchemaParserClass) APPLY Nil DOT "parse" APPLY (REF("LazyList") APPLY (schema.toString(true).trim().split("\r?\n").map(line => LIT(line) withComment " ")) DOT "map" APPLYTYPE StringClass APPLY (WILDCARD DOT "trim" APPLY Nil) DOT "mkString" APPLY LIT(""))
       )))
   ).flatten.flatMap[Tree](identity[List[Tree]]))
 

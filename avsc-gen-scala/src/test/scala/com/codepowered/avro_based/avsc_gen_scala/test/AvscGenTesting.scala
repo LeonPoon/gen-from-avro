@@ -72,31 +72,35 @@ class AvscGenTesting extends AnyFlatSpec with should.Matchers {
 
   it should "generate nothing for array schema" in {
     val schema = new Schema.Parser().parse(Schema.createArray(Schema.create(Schema.Type.INT)).toString(true))
-    val generated = new AvscGenScala(null, schema, "gen.nothing.for_._array.MyAvroSchema").files
+    val generated = new AvscGenScala(null, schema, "gen.nothing.for_._array.MyAvroSchemaArray").files
     AvscGenScala.toFiles(generateTo, generated)
     generated.tail shouldBe empty
-    generated.head.generatedElement shouldBe UnitInfo(Some("gen.nothing.for_._array"), "MyAvroSchema")
+    generated.head.generatedElement shouldBe UnitInfo(Some("gen.nothing.for_._array"), "MyAvroSchemaArray")
   }
 
   it should "generate nothing for map schema" in {
     val schema = new Schema.Parser().parse(Schema.createMap(Schema.create(Schema.Type.INT)).toString(true))
-    val generated = new AvscGenScala(null, schema, "gen.nothing.for_._map.MyAvroSchema").files
+    val generated = new AvscGenScala(null, schema, "gen.nothing.for_._map.MyAvroSchemaMap").files
     AvscGenScala.toFiles(generateTo, generated)
     generated.tail shouldBe empty
-    generated.head.generatedElement shouldBe UnitInfo(Some("gen.nothing.for_._map"), "MyAvroSchema")
+    generated.head.generatedElement shouldBe UnitInfo(Some("gen.nothing.for_._map"), "MyAvroSchemaMap")
   }
 
+  def fixedSchema(name: String, space: Option[String], size: Int): Schema = new Schema.Parser().parse(Schema.createFixed(name, null, space.orNull, size).toString())
+
   it should "generate for fixed schema" in {
-    val schema = new Schema.Parser().parse(Schema.createFixed("someFixed", null, "gen.for_._fixed", 10).toString(true))
-    val generated = new AvscGenScala(null, schema, "gen.for_._fixed.MyAvroSchema").files
+    val schema = fixedSchema("someFixed", Some("gen.for_._fixed"), 10)
+    val generated = new AvscGenScala(null, schema, "gen.for_._fixed.MyAvroSchemaFixed10").files
     AvscGenScala.toFiles(generateTo, generated)
-    generated.head.generatedElement shouldBe UnitInfo(Some("gen.for_._fixed"), "MyAvroSchema")
+    generated.head.generatedElement shouldBe UnitInfo(Some("gen.for_._fixed"), "MyAvroSchemaFixed10")
     generated.tail.head.generatedElement shouldBe UnitInfo(Some("gen.for_._fixed"), "someFixed")
     generated.tail.tail shouldBe empty
   }
 
+  def enumSchema(name: String, namespace: Option[String], values: List[String]): Schema = new Schema.Parser().parse(Schema.createEnum(name, null, namespace.orNull, values.asJava).toString())
+
   it should "generate enum" in {
-    val schema = new Schema.Parser().parse(Schema.createEnum("Enum1", null, "gen.for_._enum1", List("Apple", "Orange").asJava).toString())
+    val schema = enumSchema("Enum1", Some("gen.for_._enum1"), List("Apple", "Orange"))
     val generated = new AvscGenScala(null, schema, "gen.for_._enum1.MyAvroSchema_enum1").files
     AvscGenScala.toFiles(generateTo, generated)
     generated.head.generatedElement shouldBe UnitInfo(Some("gen.for_._enum1"), "MyAvroSchema_enum1")
@@ -105,7 +109,7 @@ class AvscGenTesting extends AnyFlatSpec with should.Matchers {
   }
 
 
-  val nsForRecordsOfVariousUnions = "gen.for_.records_containing_various_unions"
+  val nsForRecordsOfVariousUnions = "gen.for_.records.containing_various_unions"
 
   val schemaUnionEmpty = Schema.createRecord("UnionEmpty", null, nsForRecordsOfVariousUnions, false, List(new Schema.Field("emptyUnionField", new Schema.Parser().parse(Schema.createUnion().toString()))).asJava)
   val schemaUnionOfNull = Schema.createRecord("UnionOfNull", null, nsForRecordsOfVariousUnions, false, List(new Schema.Field("unionOfNullField", new Schema.Parser().parse(Schema.createUnion(Schema.create(Schema.Type.NULL)).toString()))).asJava)
@@ -117,7 +121,7 @@ class AvscGenTesting extends AnyFlatSpec with should.Matchers {
   val schemaUnionNullWithMoreThanTwoNonNullType = Schema.createRecord("UnionNullWithMoreThanTwoNonNullType", null, nsForRecordsOfVariousUnions, false, List(new Schema.Field("unionNullWithMoreThanTwoNonNullTypeField", new Schema.Parser().parse(Schema.createUnion(Schema.create(Schema.Type.NULL), schemaUnionOfTwoNonNullType, schemaUnionNullWithTwoNonNullType, schemaUnionOfMoreThanTwoNonNullType).toString()))).asJava)
 
 
-  it should "generate records" in {
+  it should "generate records of various union combinations" in {
     val schema = new Schema.Parser().parse(Schema.createUnion(
       schemaUnionEmpty,
       schemaUnionOfNull,
@@ -128,10 +132,23 @@ class AvscGenTesting extends AnyFlatSpec with should.Matchers {
       schemaUnionOfMoreThanTwoNonNullType,
       schemaUnionNullWithMoreThanTwoNonNullType
     ).toString())
-    val generated = new AvscGenScala(null, schema, "gen.for_.records_containing_various_unions.MyAvroSchema").files
+    val generated = new AvscGenScala(null, schema, s"$nsForRecordsOfVariousUnions.MyAvroSchemaRecordsVariousUnions").files
     AvscGenScala.toFiles(generateTo, generated)
-    generated.head.generatedElement shouldBe UnitInfo(Some("gen.for_.records_containing_various_unions"), "MyAvroSchema")
+    generated.head.generatedElement shouldBe UnitInfo(Some(nsForRecordsOfVariousUnions), "MyAvroSchemaRecordsVariousUnions")
     generated.tail shouldNot be(empty)
   }
 
+  it should "generate for record of primitive typed fields" in {
+    val ns = "gen.record.primitive_fields"
+    val schema = new Schema.Parser().parse(Schema.createRecord("PrimitiveFieldsRecord", null, ns, false, (primitives.map[Schema.Field] { typeName =>
+      new Schema.Field(s"${typeName}Field", Schema.create(Schema.Type.valueOf(typeName.toUpperCase())), null)
+    } ++ List(
+      new Schema.Field("enumField", enumSchema("MyEnum1", Some(ns), List("Apple", "Google"))),
+      new Schema.Field("fixedField", fixedSchema("MyFix", Some(ns), 9))
+    )).asJava).toString())
+    val generated = new AvscGenScala(null, schema, s"$ns.MyAvroSchemaRecordOfFieldsOfPrimitives").files
+    AvscGenScala.toFiles(generateTo, generated)
+    generated.head.generatedElement shouldBe UnitInfo(Some(ns), "MyAvroSchemaRecordOfFieldsOfPrimitives")
+    generated.tail shouldNot be(empty)
+  }
 }
